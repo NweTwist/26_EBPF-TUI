@@ -213,30 +213,29 @@ impl App {
         }
     }
 
-    fn status_text(&self) -> String {
+    fn status_lines_for_render(&self) -> Vec<Line<'static>> {
         if self.status_lines.is_empty() {
-            return self.last_message.clone();
+            return vec![Line::from(self.last_message.clone())];
         }
 
-        let mut out = String::new();
-        for line in &self.status_lines {
-            out.push_str(line);
-            out.push('\n');
-        }
-        out
+        self.status_lines
+            .iter()
+            .map(|s| Line::from(s.clone()))
+            .collect()
     }
 
     pub fn scroll_status_up(&mut self) {
-        self.status_scroll_offset = self.status_scroll_offset.saturating_add(5);
+        let max = self.status_lines.len().saturating_sub(1) as u16;
+        self.status_scroll_offset = self.status_scroll_offset.saturating_add(3).min(max);
         self.status_user_scrolled = true;
     }
 
     pub fn scroll_status_down(&mut self) {
-        if self.status_scroll_offset <= 5 {
+        if self.status_scroll_offset <= 3 {
             self.status_scroll_offset = 0;
             self.status_user_scrolled = false;
         } else {
-            self.status_scroll_offset = self.status_scroll_offset.saturating_sub(5);
+            self.status_scroll_offset = self.status_scroll_offset.saturating_sub(3);
         }
     }
 
@@ -247,13 +246,14 @@ impl App {
         }
     }
 
-    /// Сброс ручного скролла (Home)
+    /// Сброс ручного скролла (Home / g)
     pub fn scroll_status_reset(&mut self) {
         self.status_scroll_offset = 0;
         self.status_user_scrolled = false;
     }
 
-    /// Вычисляет позицию скролла для виджета Status
+    /// Вычисляет позицию скролла для виджета Status.
+    /// offset=0 означает "показать конец", offset>0 — подняться вверх.
     fn status_scroll_position(&self, visible_height: u16) -> u16 {
         let total_lines = self.status_lines.len() as u16;
         if total_lines <= visible_height {
@@ -311,12 +311,14 @@ pub fn render(frame: &mut Frame, app: &mut App) {
     let status_visible_height = right[0].height.saturating_sub(2);
     let scroll_pos = app.status_scroll_position(status_visible_height);
 
-    let info = Paragraph::new(app.status_text())
-        .wrap(Wrap { trim: true })
+    let status_content = app.status_lines_for_render();
+    let info = Paragraph::new(status_content)
+        .wrap(Wrap { trim: false })
         .scroll((scroll_pos, 0))
         .block(Block::default().borders(Borders::ALL).title(format!(
-            "Status [PgUp/PgDn scroll | lines: {}]",
-            app.status_lines.len()
+            "Status [lines:{} scroll:{}]",
+            app.status_lines.len(),
+            app.status_scroll_offset,
         )));
     frame.render_widget(info, right[0]);
 
