@@ -267,7 +267,7 @@ impl App {
 pub fn render(frame: &mut Frame, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(5)])
+        .constraints([Constraint::Min(3), Constraint::Length(7)])
         .split(frame.size());
 
     let main = Layout::default()
@@ -340,10 +340,14 @@ pub fn render(frame: &mut Frame, app: &mut App) {
             Span::raw(" quit"),
         ]),
         Line::from(vec![
+            Span::styled("[/]", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" or "),
+            Span::styled("Shift+↑/↓", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" or "),
             Span::styled("PgUp/PgDn", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(" scroll Status  "),
-            Span::styled("Home", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" scroll to bottom"),
+            Span::styled("g", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" bottom"),
         ]),
         Line::from(vec![Span::raw("Trace: always on (trace_global.log)")]),
         Line::from(vec![Span::raw(

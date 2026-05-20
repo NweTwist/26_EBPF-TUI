@@ -183,19 +183,32 @@ fn run_app(
 
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
-                Event::Key(key) => match key.code {
-                    KeyCode::Char('q') => {
-                        app.request_stop();
-                        return Ok(());
+                Event::Key(key) => {
+                    use crossterm::event::KeyModifiers;
+                    match key.code {
+                        KeyCode::Char('q') => {
+                            app.request_stop();
+                            return Ok(());
+                        }
+                        KeyCode::Up if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                            app.scroll_status_up();
+                        }
+                        KeyCode::Down if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                            app.scroll_status_down();
+                        }
+                        KeyCode::Up => app.select_prev(),
+                        KeyCode::Down => app.select_next(),
+                        KeyCode::Char('l') => app.load_selected(),
+                        KeyCode::Char('s') => app.stop_selected(),
+                        KeyCode::PageUp => app.scroll_status_up(),
+                        KeyCode::PageDown => app.scroll_status_down(),
+                        KeyCode::Home => app.scroll_status_reset(),
+                        // Альтернативные клавиши прокрутки Status (гарантированно работают)
+                        KeyCode::Char('[') => app.scroll_status_up(),
+                        KeyCode::Char(']') => app.scroll_status_down(),
+                        KeyCode::Char('g') => app.scroll_status_reset(),
+                        _ => {}
                     }
-                    KeyCode::Up => app.select_prev(),
-                    KeyCode::Down => app.select_next(),
-                    KeyCode::Char('l') => app.load_selected(),
-                    KeyCode::Char('s') => app.stop_selected(),
-                    KeyCode::PageUp => app.scroll_status_up(),
-                    KeyCode::PageDown => app.scroll_status_down(),
-                    KeyCode::Home => app.scroll_status_reset(),
-                    _ => {}
                 },
                 Event::Resize(_, _) => {}
                 _ => {}
