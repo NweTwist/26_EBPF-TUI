@@ -225,17 +225,30 @@ impl App {
     }
 
     pub fn scroll_status_up(&mut self) {
-        let max = self.status_lines.len().saturating_sub(1) as u16;
-        self.status_scroll_offset = self.status_scroll_offset.saturating_add(3).min(max);
-        self.status_user_scrolled = true;
+        // Прокрутка вверх — увеличиваем абсолютную позицию от начала
+        // Если ещё не скроллили, начинаем с текущей позиции "конец минус видимое"
+        if !self.status_user_scrolled {
+            // Переключаемся в режим ручного скролла, фиксируем текущую позицию
+            self.status_user_scrolled = true;
+            // scroll_offset теперь хранит абсолютную позицию (строка от начала)
+            // Ставим на "конец" и потом поднимаем
+            let total = self.status_lines.len() as u16;
+            self.status_scroll_offset = total.saturating_sub(3);
+        } else {
+            self.status_scroll_offset = self.status_scroll_offset.saturating_sub(3);
+        }
     }
 
     pub fn scroll_status_down(&mut self) {
-        if self.status_scroll_offset <= 3 {
+        if !self.status_user_scrolled {
+            return; // Уже внизу
+        }
+        let total = self.status_lines.len() as u16;
+        self.status_scroll_offset = self.status_scroll_offset.saturating_add(3);
+        // Если дошли до конца — выключаем ручной скролл
+        if self.status_scroll_offset >= total {
             self.status_scroll_offset = 0;
             self.status_user_scrolled = false;
-        } else {
-            self.status_scroll_offset = self.status_scroll_offset.saturating_sub(3);
         }
     }
 
@@ -246,21 +259,29 @@ impl App {
         }
     }
 
-    /// Сброс ручного скролла (Home / g)
+    /// Сброс ручного скролла (Home / g) — вернуться к автоскроллу (конец)
     pub fn scroll_status_reset(&mut self) {
         self.status_scroll_offset = 0;
         self.status_user_scrolled = false;
     }
 
     /// Вычисляет позицию скролла для виджета Status.
-    /// offset=0 означает "показать конец", offset>0 — подняться вверх.
+    /// Когда user_scrolled=false (автоскролл): показываем конец.
+    /// Когда user_scrolled=true: scroll_offset — абсолютная строка от начала.
     fn status_scroll_position(&self, visible_height: u16) -> u16 {
         let total_lines = self.status_lines.len() as u16;
         if total_lines <= visible_height {
             return 0;
         }
+
+        if !self.status_user_scrolled {
+            // Автоскролл — показываем конец
+            return total_lines.saturating_sub(visible_height);
+        }
+
+        // Ручной скролл — offset это абсолютная позиция от начала
         let max_scroll = total_lines.saturating_sub(visible_height);
-        max_scroll.saturating_sub(self.status_scroll_offset)
+        self.status_scroll_offset.min(max_scroll)
     }
 }
 
