@@ -190,24 +190,58 @@ fn run_app(
                             app.request_stop();
                             return Ok(());
                         }
-                        KeyCode::Up if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                            app.scroll_status_up();
-                        }
-                        KeyCode::Down if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                            app.scroll_status_down();
-                        }
-                        KeyCode::Up => app.select_prev(),
-                        KeyCode::Down => app.select_next(),
-                        KeyCode::Char('l') => app.load_selected(),
-                        KeyCode::Char('s') => app.stop_selected(),
-                        KeyCode::PageUp => app.scroll_status_up(),
-                        KeyCode::PageDown => app.scroll_status_down(),
-                        KeyCode::Home => app.scroll_status_reset(),
-                        // Альтернативные клавиши прокрутки Status (гарантированно работают)
-                        KeyCode::Char('[') => app.scroll_status_up(),
-                        KeyCode::Char(']') => app.scroll_status_down(),
-                        KeyCode::Char('g') => app.scroll_status_reset(),
+                        KeyCode::Tab => app.switch_tab(),
                         _ => {}
+                    }
+                    // Обработка клавиш в зависимости от активной вкладки
+                    match app.active_tab {
+                        ui::ActiveTab::Runner => match key.code {
+                            KeyCode::Up if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                                app.scroll_status_up();
+                            }
+                            KeyCode::Down if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                                app.scroll_status_down();
+                            }
+                            KeyCode::Up => app.select_prev(),
+                            KeyCode::Down => app.select_next(),
+                            KeyCode::Char('l') => app.load_selected(),
+                            KeyCode::Char('s') => app.stop_selected(),
+                            KeyCode::PageUp => app.scroll_status_up(),
+                            KeyCode::PageDown => app.scroll_status_down(),
+                            KeyCode::Home => app.scroll_status_reset(),
+                            KeyCode::Char('[') => app.scroll_status_up(),
+                            KeyCode::Char(']') => app.scroll_status_down(),
+                            KeyCode::Char('g') => app.scroll_status_reset(),
+                            _ => {}
+                        },
+                        ui::ActiveTab::Statistics => match key.code {
+                            KeyCode::Up => app.event_table_up(),
+                            KeyCode::Down => app.event_table_down(),
+                            KeyCode::PageUp => {
+                                for _ in 0..10 {
+                                    app.event_table_up();
+                                }
+                            }
+                            KeyCode::PageDown => {
+                                for _ in 0..10 {
+                                    app.event_table_down();
+                                }
+                            }
+                            KeyCode::Char('[') => {
+                                for _ in 0..5 {
+                                    app.event_table_up();
+                                }
+                            }
+                            KeyCode::Char(']') => {
+                                for _ in 0..5 {
+                                    app.event_table_down();
+                                }
+                            }
+                            // Разрешаем l/s и на вкладке Statistics
+                            KeyCode::Char('l') => app.load_selected(),
+                            KeyCode::Char('s') => app.stop_selected(),
+                            _ => {}
+                        },
                     }
                 },
                 Event::Resize(_, _) => {}

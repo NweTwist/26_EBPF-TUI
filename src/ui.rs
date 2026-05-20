@@ -1,10 +1,14 @@
 use crate::{discovery::Program, runner};
 use anyhow::Context;
+use chrono::Local;
 use ratatui::{
-    layout::{Constraint, Direction, Layout},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap},
+    widgets::{
+        BarChart, Block, Borders, Cell, List, ListItem, ListState, Paragraph, Row, Sparkline,
+        Table, Tabs, Wrap,
+    },
     Frame,
 };
 use serde::Deserialize;
@@ -19,6 +23,8 @@ use std::{
         Arc,
     },
 };
+
+// ─── Config ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize, Default)]
 pub struct ConfigFile {
@@ -42,12 +48,32 @@ pub fn load_config(config_path: Option<&Path>, repo_root: &Path) -> anyhow::Resu
     Ok(cfg)
 }
 
+// ─── Data types ───────────────────────────────────────────────────────────────
+
 #[derive(Clone, Debug)]
 pub struct ProgramEntry {
     pub program: Program,
     pub status: runner::ProgramStatus,
     pub attached: bool,
 }
+
+/// Запись в таблице событий (для вкладки Statistics)
+#[derive(Clone, Debug)]
+pub struct EventRecord {
+    pub timestamp: String,
+    pub module: String,
+    pub event_type: String,
+    pub message: String,
+}
+
+/// Активная вкладка
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ActiveTab {
+    Runner,
+    Statistics,
+}
+
+// ─── App state ────────────────────────────────────────────────────────────────
 
 pub struct App {
     pub entries: Vec<ProgramEntry>,
@@ -61,6 +87,23 @@ pub struct App {
     pub tx: mpsc::Sender<runner::RunnerEvent>,
     pub stop_flag: Arc<AtomicBool>,
     pub status_log_path: PathBuf,
+
+    // ─── Statistics data ──────────────────────────────────────────────────
+    pub active_tab: ActiveTab,
+    /// Таблица событий (все записи)
+    pub event_log: VecDeque<EventRecord>,
+    pub event_table_scroll: usize,
+    /// Счётчики событий по секундам (для sparkline — последние 60 точек)
+    pub events_per_second: VecDeque<u64>,
+    pub last_second_tick: u64,
+    pub current_second_count: u64,
+    /// Счётчики по типам для гистограммы
+    pub count_build: u64,
+    pub count_load: u64,
+    pub count_run: u64,
+    pub count_stop: u64,
+    pub count_fail: u64,
+    pub count_trace: u64,
 }
 
 impl App {
@@ -90,11 +133,13 @@ impl App {
             list_state.select(Some(0));
         }
 
+        let now_sec = Local::now().timestamp() as u64;
+
         Self {
             entries,
             selected: 0,
             list_state,
-            last_message: "Ready. Keys: l load+run, s stop, q quit".to_string(),
+            last_message: "Ready. Keys: Tab switch view, l load, s stop, q quit".to_string(),
             status_lines: VecDeque::new(),
             status_scroll_offset: 0,
             status_user_scrolled: false,
@@ -102,8 +147,31 @@ impl App {
             tx,
             stop_flag: Arc::new(AtomicBool::new(false)),
             status_log_path,
+            active_tab: ActiveTab::Runner,
+            event_log: VecDeque::new(),
+            event_table_scroll: 0,
+            events_per_second: VecDeque::from(vec![0u64; 60]),
+            last_second_tick: now_sec,
+            current_second_count: 0,
+            count_build: 0,
+            count_load: 0,
+            count_run: 0,
+            count_stop: 0,
+            count_fail: 0,
+            count_trace: 0,
         }
     }
+
+    // ─── Tab switching ────────────────────────────────────────────────────
+
+    pub fn switch_tab(&mut self) {
+        self.active_tab = match self.active_tab {
+            ActiveTab::Runner => ActiveTab::Statistics,
+            ActiveTab::Statistics => ActiveTab::Runner,
+        };
+    }
+
+    // ─── Module list navigation ───────────────────────────────────────────
 
     pub fn select_prev(&mut self) {
         if self.entries.is_empty() {
@@ -125,17 +193,42 @@ impl App {
         self.list_state.select(Some(self.selected));
     }
 
+    // ─── Event table navigation (Statistics tab) ──────────────────────────
+
+    pub fn event_table_up(&mut self) {
+        self.event_table_scroll = self.event_table_scroll.saturating_sub(1);
+    }
+
+    pub fn event_table_down(&mut self) {
+        let max = self.event_log.len().saturating_sub(1);
+        if self.event_table_scroll < max {
+            self.event_table_scroll += 1;
+        }
+    }
+
+    // ─── Runner events ────────────────────────────────────────────────────
+
     pub fn apply_runner_event(&mut self, ev: runner::RunnerEvent) {
         match ev {
             runner::RunnerEvent::Status { index, status } => {
                 if let Some(entry) = self.entries.get_mut(index) {
+                    // Обновляем счётчики для гистограммы
+                    match &status {
+                        runner::ProgramStatus::Running("build") => self.count_build += 1,
+                        runner::ProgramStatus::Running("load") => self.count_load += 1,
+                        runner::ProgramStatus::Running("run") => self.count_run += 1,
+                        runner::ProgramStatus::Stopped => self.count_stop += 1,
+                        runner::ProgramStatus::Failed(_) => self.count_fail += 1,
+                        _ => {}
+                    }
                     entry.status = status;
                 }
             }
             runner::RunnerEvent::Message { text } => {
-                self.last_message = text;
+                self.last_message = text.clone();
                 self.push_status_line(self.last_message.clone());
                 self.scroll_status_to_bottom();
+                self.record_event("system", "message", &text);
             }
             runner::RunnerEvent::LogLine { index, line } => {
                 let prefix = self
@@ -145,10 +238,13 @@ impl App {
                     .unwrap_or_else(|| "module".to_string());
                 self.push_status_line(format!("{} | {}", prefix, line));
                 self.scroll_status_to_bottom();
+                self.record_event(&prefix, "log", &line);
             }
             runner::RunnerEvent::TraceLine { line } => {
                 self.push_status_line(format!("trace | {}", line));
                 self.scroll_status_to_bottom();
+                self.count_trace += 1;
+                self.record_event("trace", "trace", &line);
             }
             runner::RunnerEvent::ModuleState { index, attached } => {
                 if let Some(entry) = self.entries.get_mut(index) {
@@ -159,6 +255,41 @@ impl App {
             }
         }
     }
+
+    fn record_event(&mut self, module: &str, event_type: &str, message: &str) {
+        const MAX_EVENTS: usize = 5000;
+        let ts = Local::now().format("%H:%M:%S").to_string();
+
+        self.event_log.push_back(EventRecord {
+            timestamp: ts,
+            module: module.to_string(),
+            event_type: event_type.to_string(),
+            message: message.chars().take(120).collect(),
+        });
+        while self.event_log.len() > MAX_EVENTS {
+            self.event_log.pop_front();
+        }
+
+        // Обновляем sparkline (события в секунду)
+        let now_sec = Local::now().timestamp() as u64;
+        if now_sec != self.last_second_tick {
+            // Заполняем пропущенные секунды нулями
+            let gap = (now_sec - self.last_second_tick).min(60);
+            for _ in 0..gap.saturating_sub(1) {
+                self.events_per_second.push_back(0);
+            }
+            self.events_per_second.push_back(self.current_second_count);
+            self.current_second_count = 0;
+            self.last_second_tick = now_sec;
+            // Ограничиваем 60 точками
+            while self.events_per_second.len() > 60 {
+                self.events_per_second.pop_front();
+            }
+        }
+        self.current_second_count += 1;
+    }
+
+    // ─── Actions ──────────────────────────────────────────────────────────
 
     pub fn request_stop(&mut self) {
         self.stop_flag.store(true, Ordering::Relaxed);
@@ -177,11 +308,10 @@ impl App {
             return;
         }
         self.stop_flag.store(false, Ordering::Relaxed);
-        // Очищаем status при новом запуске, чтобы лог обновлялся
+        // Очищаем status при новом запуске
         self.status_lines.clear();
         self.status_scroll_offset = 0;
         self.status_user_scrolled = false;
-        // Перезаписываем файл лога status_window
         let _ = fs::write(&self.status_log_path, b"");
         let index = self.selected;
         let program = self.entries[index].program.clone();
@@ -197,6 +327,8 @@ impl App {
             action,
         );
     }
+
+    // ─── Status window (Runner tab) ──────────────────────────────────────
 
     fn push_status_line(&mut self, line: String) {
         const MAX_STATUS_LINES: usize = 2000;
@@ -217,7 +349,6 @@ impl App {
         if self.status_lines.is_empty() {
             return vec![Line::from(self.last_message.clone())];
         }
-
         self.status_lines
             .iter()
             .map(|s| Line::from(s.clone()))
@@ -225,13 +356,8 @@ impl App {
     }
 
     pub fn scroll_status_up(&mut self) {
-        // Прокрутка вверх — увеличиваем абсолютную позицию от начала
-        // Если ещё не скроллили, начинаем с текущей позиции "конец минус видимое"
         if !self.status_user_scrolled {
-            // Переключаемся в режим ручного скролла, фиксируем текущую позицию
             self.status_user_scrolled = true;
-            // scroll_offset теперь хранит абсолютную позицию (строка от начала)
-            // Ставим на "конец" и потом поднимаем
             let total = self.status_lines.len() as u16;
             self.status_scroll_offset = total.saturating_sub(3);
         } else {
@@ -241,11 +367,10 @@ impl App {
 
     pub fn scroll_status_down(&mut self) {
         if !self.status_user_scrolled {
-            return; // Уже внизу
+            return;
         }
         let total = self.status_lines.len() as u16;
         self.status_scroll_offset = self.status_scroll_offset.saturating_add(3);
-        // Если дошли до конца — выключаем ручной скролл
         if self.status_scroll_offset >= total {
             self.status_scroll_offset = 0;
             self.status_user_scrolled = false;
@@ -253,62 +378,84 @@ impl App {
     }
 
     fn scroll_status_to_bottom(&mut self) {
-        // Автоскролл только если пользователь не скроллил вручную
         if !self.status_user_scrolled {
             self.status_scroll_offset = 0;
         }
     }
 
-    /// Сброс ручного скролла (Home / g) — вернуться к автоскроллу (конец)
     pub fn scroll_status_reset(&mut self) {
         self.status_scroll_offset = 0;
         self.status_user_scrolled = false;
     }
 
-    /// Вычисляет позицию скролла для виджета Status.
-    /// Когда user_scrolled=false (автоскролл): показываем конец.
-    /// Когда user_scrolled=true: scroll_offset — абсолютная строка от начала.
     fn status_scroll_position(&self, visible_height: u16) -> u16 {
         let total_lines = self.status_lines.len() as u16;
         if total_lines <= visible_height {
             return 0;
         }
-
         if !self.status_user_scrolled {
-            // Автоскролл — показываем конец
             return total_lines.saturating_sub(visible_height);
         }
-
-        // Ручной скролл — offset это абсолютная позиция от начала
         let max_scroll = total_lines.saturating_sub(visible_height);
         self.status_scroll_offset.min(max_scroll)
     }
 }
 
+// ─── Rendering ────────────────────────────────────────────────────────────────
+
 pub fn render(frame: &mut Frame, app: &mut App) {
+    let outer = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(1)])
+        .split(frame.size());
+
+    // ─── Tab bar ──────────────────────────────────────────────────────────
+    let tab_titles = vec![
+        Span::styled(" Runner ", Style::default().add_modifier(Modifier::BOLD)),
+        Span::styled(" Statistics ", Style::default().add_modifier(Modifier::BOLD)),
+    ];
+    let tabs = Tabs::new(tab_titles.into_iter().map(Line::from).collect::<Vec<_>>())
+        .block(Block::default().borders(Borders::ALL).title("ebpf-tui"))
+        .select(match app.active_tab {
+            ActiveTab::Runner => 0,
+            ActiveTab::Statistics => 1,
+        })
+        .style(Style::default().fg(Color::White))
+        .highlight_style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD));
+    frame.render_widget(tabs, outer[0]);
+
+    match app.active_tab {
+        ActiveTab::Runner => render_runner_tab(frame, app, outer[1]),
+        ActiveTab::Statistics => render_statistics_tab(frame, app, outer[1]),
+    }
+}
+
+// ─── Runner tab ───────────────────────────────────────────────────────────────
+
+fn render_runner_tab(frame: &mut Frame, app: &mut App, area: Rect) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(3), Constraint::Length(7)])
-        .split(frame.size());
+        .constraints([Constraint::Min(3), Constraint::Length(5)])
+        .split(area);
 
     let main = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
         .split(chunks[0]);
 
+    // ─── Programs list ────────────────────────────────────────────────────
     let items: Vec<ListItem> = app
         .entries
         .iter()
         .enumerate()
         .map(|(idx, entry)| {
-            let status = status_text(&entry.status);
+            let status = format_program_status(&entry.status);
             let is_selected = idx == app.selected;
             let style = if is_selected {
                 Style::default().fg(Color::Black).bg(Color::White)
             } else {
                 Style::default()
             };
-
             let line = Line::from(vec![
                 Span::styled(entry.program.name.clone(), style.add_modifier(Modifier::BOLD)),
                 Span::raw("  "),
@@ -323,23 +470,21 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .highlight_style(Style::default().fg(Color::Black).bg(Color::White));
     frame.render_stateful_widget(list, main[0], &mut app.list_state);
 
+    // ─── Right panel: Status + Module card ────────────────────────────────
     let right = Layout::default()
         .direction(Direction::Vertical)
         .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
         .split(main[1]);
 
-    // Вычисляем видимую высоту Status (минус 2 на рамку)
     let status_visible_height = right[0].height.saturating_sub(2);
     let scroll_pos = app.status_scroll_position(status_visible_height);
-
     let status_content = app.status_lines_for_render();
     let info = Paragraph::new(status_content)
         .wrap(Wrap { trim: false })
         .scroll((scroll_pos, 0))
         .block(Block::default().borders(Borders::ALL).title(format!(
-            "Status [lines:{} scroll:{}]",
+            "Status [lines:{} | [/] scroll, g=end]",
             app.status_lines.len(),
-            app.status_scroll_offset,
         )));
     frame.render_widget(info, right[0]);
 
@@ -349,37 +494,151 @@ pub fn render(frame: &mut Frame, app: &mut App) {
         .block(Block::default().borders(Borders::ALL).title("Module card"));
     frame.render_widget(details_widget, right[1]);
 
+    // ─── Help bar ─────────────────────────────────────────────────────────
     let help = Paragraph::new(vec![
-        Line::from(vec![Span::styled(
-            "↑/↓",
-            Style::default().add_modifier(Modifier::BOLD),
-        ), Span::raw(" select  ")]),
         Line::from(vec![
+            Span::styled("Tab", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" switch view  "),
+            Span::styled("↑/↓", Style::default().add_modifier(Modifier::BOLD)),
+            Span::raw(" select  "),
             Span::styled("l", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" load+run  "),
+            Span::raw(" load  "),
             Span::styled("s", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" stop/detach  "),
+            Span::raw(" stop  "),
             Span::styled("q", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(" quit"),
         ]),
         Line::from(vec![
             Span::styled("[/]", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" or "),
-            Span::styled("Shift+↑/↓", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" or "),
-            Span::styled("PgUp/PgDn", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(" scroll Status  "),
             Span::styled("g", Style::default().add_modifier(Modifier::BOLD)),
-            Span::raw(" bottom"),
+            Span::raw(" scroll to end  "),
+            Span::raw("Logs: artifacts/<module>/"),
         ]),
-        Line::from(vec![Span::raw("Trace: always on (trace_global.log)")]),
-        Line::from(vec![Span::raw(
-            "Logs: artifacts/<program>/ | Full status: artifacts/status_window.log",
-        )]),
     ])
     .block(Block::default().borders(Borders::ALL).title("Help"));
     frame.render_widget(help, chunks[1]);
 }
+
+// ─── Statistics tab ───────────────────────────────────────────────────────────
+
+fn render_statistics_tab(frame: &mut Frame, app: &mut App, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(5),  // Sparkline (events/sec graph)
+            Constraint::Length(9),  // Histogram (bar chart)
+            Constraint::Min(8),    // Event table
+            Constraint::Length(3), // Help
+        ])
+        .split(area);
+
+    // ─── 1. Sparkline: events per second (last 60s) ──────────────────────
+    let spark_data: Vec<u64> = app.events_per_second.iter().copied().collect();
+    let sparkline = Sparkline::default()
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Events/sec (last 60s) — график активности"),
+        )
+        .data(&spark_data)
+        .style(Style::default().fg(Color::Cyan));
+    frame.render_widget(sparkline, chunks[0]);
+
+    // ─── 2. Bar chart: event type histogram ──────────────────────────────
+    let bar_data: Vec<(&str, u64)> = vec![
+        ("build", app.count_build),
+        ("load", app.count_load),
+        ("run", app.count_run),
+        ("stop", app.count_stop),
+        ("fail", app.count_fail),
+        ("trace", app.count_trace),
+    ];
+    let barchart = BarChart::default()
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Гистограмма событий по типам"),
+        )
+        .data(&bar_data)
+        .bar_width(7)
+        .bar_gap(1)
+        .bar_style(Style::default().fg(Color::Green))
+        .value_style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD));
+    frame.render_widget(barchart, chunks[1]);
+
+    // ─── 3. Event table ──────────────────────────────────────────────────
+    let header_cells = ["Time", "Module", "Type", "Message"]
+        .iter()
+        .map(|h| Cell::from(*h).style(Style::default().add_modifier(Modifier::BOLD)));
+    let header = Row::new(header_cells)
+        .style(Style::default().fg(Color::Yellow))
+        .height(1);
+
+    let visible_height = chunks[2].height.saturating_sub(3) as usize; // borders + header
+    let total = app.event_log.len();
+    // Скролл: показываем от event_table_scroll
+    let display_start = if app.event_table_scroll < total {
+        app.event_table_scroll
+    } else {
+        total.saturating_sub(visible_height)
+    };
+    let display_end = (display_start + visible_height).min(total);
+
+    let rows: Vec<Row> = app
+        .event_log
+        .iter()
+        .skip(display_start)
+        .take(display_end - display_start)
+        .map(|ev| {
+            let style = match ev.event_type.as_str() {
+                "trace" => Style::default().fg(Color::Cyan),
+                "log" => Style::default().fg(Color::White),
+                "message" => Style::default().fg(Color::Yellow),
+                _ => Style::default(),
+            };
+            Row::new(vec![
+                Cell::from(ev.timestamp.clone()),
+                Cell::from(ev.module.clone()),
+                Cell::from(ev.event_type.clone()),
+                Cell::from(ev.message.clone()),
+            ])
+            .style(style)
+        })
+        .collect();
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(8),
+            Constraint::Length(20),
+            Constraint::Length(8),
+            Constraint::Min(30),
+        ],
+    )
+    .header(header)
+    .block(Block::default().borders(Borders::ALL).title(format!(
+        "Таблица событий [{}/{}] (↑/↓ прокрутка)",
+        display_start + 1,
+        total
+    )));
+    frame.render_widget(table, chunks[2]);
+
+    // ─── Help ─────────────────────────────────────────────────────────────
+    let help = Paragraph::new(Line::from(vec![
+        Span::styled("Tab", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(" switch to Runner  "),
+        Span::styled("↑/↓", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(" scroll table  "),
+        Span::styled("q", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(" quit  "),
+        Span::raw("Data is collected in real-time from all module operations"),
+    ]))
+    .block(Block::default().borders(Borders::ALL).title("Help"));
+    frame.render_widget(help, chunks[3]);
+}
+
+// ─── Helper functions ─────────────────────────────────────────────────────────
 
 fn selected_program_details(app: &App) -> Vec<Line<'static>> {
     let Some(entry) = app.entries.get(app.selected) else {
@@ -389,7 +648,7 @@ fn selected_program_details(app: &App) -> Vec<Line<'static>> {
     let (progress, tone) = status_progress(&entry.status);
     let micro = module_microcopy(&entry.program.name);
     let bar = progress_bar(progress, 18);
-    let status = status_text(&entry.status);
+    let status = format_program_status(&entry.status);
 
     vec![
         Line::from(vec![
@@ -414,7 +673,7 @@ fn selected_program_details(app: &App) -> Vec<Line<'static>> {
         ]),
         Line::from(""),
         Line::from(vec![
-            Span::styled("Micro: ", Style::default().add_modifier(Modifier::BOLD)),
+            Span::styled("Info: ", Style::default().add_modifier(Modifier::BOLD)),
             Span::raw(micro.to_string()),
         ]),
     ]
@@ -461,7 +720,7 @@ fn module_microcopy(name: &str) -> &'static str {
     }
 }
 
-fn status_text(status: &runner::ProgramStatus) -> String {
+fn format_program_status(status: &runner::ProgramStatus) -> String {
     match status {
         runner::ProgramStatus::Idle => "idle".to_string(),
         runner::ProgramStatus::Running(step) => format!("running: {}", step),
