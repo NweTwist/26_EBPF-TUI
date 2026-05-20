@@ -56,6 +56,7 @@ pub struct App {
     pub last_message: String,
     pub status_lines: VecDeque<String>,
     pub status_scroll_offset: u16,
+    pub status_user_scrolled: bool,
     pub artifacts_dir: PathBuf,
     pub tx: mpsc::Sender<runner::RunnerEvent>,
     pub stop_flag: Arc<AtomicBool>,
@@ -96,6 +97,7 @@ impl App {
             last_message: "Ready. Keys: l load+run, s stop, q quit".to_string(),
             status_lines: VecDeque::new(),
             status_scroll_offset: 0,
+            status_user_scrolled: false,
             artifacts_dir,
             tx,
             stop_flag: Arc::new(AtomicBool::new(false)),
@@ -178,6 +180,7 @@ impl App {
         // Очищаем status при новом запуске, чтобы лог обновлялся
         self.status_lines.clear();
         self.status_scroll_offset = 0;
+        self.status_user_scrolled = false;
         // Перезаписываем файл лога status_window
         let _ = fs::write(&self.status_log_path, b"");
         let index = self.selected;
@@ -224,15 +227,30 @@ impl App {
     }
 
     pub fn scroll_status_up(&mut self) {
-        self.status_scroll_offset = self.status_scroll_offset.saturating_add(1);
+        self.status_scroll_offset = self.status_scroll_offset.saturating_add(5);
+        self.status_user_scrolled = true;
     }
 
     pub fn scroll_status_down(&mut self) {
-        self.status_scroll_offset = self.status_scroll_offset.saturating_sub(1);
+        if self.status_scroll_offset <= 5 {
+            self.status_scroll_offset = 0;
+            self.status_user_scrolled = false;
+        } else {
+            self.status_scroll_offset = self.status_scroll_offset.saturating_sub(5);
+        }
     }
 
     fn scroll_status_to_bottom(&mut self) {
+        // Автоскролл только если пользователь не скроллил вручную
+        if !self.status_user_scrolled {
+            self.status_scroll_offset = 0;
+        }
+    }
+
+    /// Сброс ручного скролла (Home)
+    pub fn scroll_status_reset(&mut self) {
         self.status_scroll_offset = 0;
+        self.status_user_scrolled = false;
     }
 
     /// Вычисляет позицию скролла для виджета Status

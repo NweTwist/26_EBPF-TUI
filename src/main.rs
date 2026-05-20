@@ -194,7 +194,7 @@ fn run_app(
                     KeyCode::Char('s') => app.stop_selected(),
                     KeyCode::PageUp => app.scroll_status_up(),
                     KeyCode::PageDown => app.scroll_status_down(),
-                    KeyCode::Home => app.scroll_status_down(),
+                    KeyCode::Home => app.scroll_status_reset(),
                     _ => {}
                 },
                 Event::Resize(_, _) => {}
