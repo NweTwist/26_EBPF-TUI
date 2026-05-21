@@ -348,10 +348,13 @@ impl App {
             return;
         }
         self.stop_flag.store(false, Ordering::Relaxed);
-        self.status_lines.clear();
-        self.status_scroll = 0;
-        self.status_pinned = false;
-        let _ = fs::write(&self.status_log_path, b"");
+        // Для verify НЕ очищаем лог — трассировки добавляются к существующим
+        if !matches!(action, runner::RunAction::Verify) {
+            self.status_lines.clear();
+            self.status_scroll = 0;
+            self.status_pinned = false;
+            let _ = fs::write(&self.status_log_path, b"");
+        }
         let index = self.selected;
         let program = self.entries[index].program.clone();
         let config = runner::RunConfig {

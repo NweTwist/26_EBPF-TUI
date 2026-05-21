@@ -223,7 +223,6 @@ fn run_manual_action(
         }
         RunAction::Verify => {
             // Скрипты verify лежат в <ebpf-tui>/verify/<module_folder_name>.sh
-            // Определяем путь к папке verify относительно CARGO_MANIFEST_DIR или artifacts
             let module_folder = program.dir
                 .file_name()
                 .and_then(|n| n.to_str())
@@ -231,8 +230,9 @@ fn run_manual_action(
             let verify_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("verify");
             let verify_script = verify_dir.join(format!("{}.sh", module_folder));
 
-            if !verify_script.exists() {
-                // Fallback: ищем verify.sh в самой папке модуля (обратная совместимость)
+            let script_to_run = if verify_script.exists() {
+                verify_script
+            } else {
                 let fallback = program.dir.join("verify.sh");
                 if !fallback.exists() {
                     tx.send(RunnerEvent::Message {
@@ -241,47 +241,53 @@ fn run_manual_action(
                     .ok();
                     return Err(anyhow!(
                         "verify script not found: {} or {}",
-                        verify_script.display(),
+                        verify_dir.join(format!("{}.sh", module_folder)).display(),
                         fallback.display()
                     ));
                 }
-                tx.send(RunnerEvent::Status {
-                    index,
-                    status: ProgramStatus::Running("verify"),
-                })
-                .ok();
-                run_step_to_log(
-                    tx, stop_flag, index, program, "verify",
-                    &fallback, &out_dir.join("verify.log"),
-                )?;
-            } else {
-                tx.send(RunnerEvent::Status {
-                    index,
-                    status: ProgramStatus::Running("verify"),
-                })
-                .ok();
-                // Запускаем verify из папки модуля (cwd = program.dir)
-                let command = format!("chmod +x '{}' && '{}'", verify_script.display(), verify_script.display());
-                let result = run_shell_and_stream(
-                    tx, stop_flag, index, &program.dir, &command, Some("verify"),
-                )
-                .with_context(|| format!("verify for {}", program.name))?;
-                let log_path = out_dir.join("verify.log");
-                fs::write(&log_path, result.output.as_bytes())
-                    .with_context(|| format!("write {}", log_path.display()))?;
-                if !result.success {
-                    return Err(anyhow!("verify failed (see {})", log_path.display()));
-                }
-            }
+                fallback
+            };
+
             tx.send(RunnerEvent::Status {
                 index,
-                status: ProgramStatus::Stopped,
+                status: ProgramStatus::Running("verify"),
             })
             .ok();
             tx.send(RunnerEvent::Message {
-                text: format!("{}: VERIFY completed", program.name),
+                text: format!("{}: running verify actions...", program.name),
             })
             .ok();
+
+            // Запускаем verify из папки модуля (cwd = program.dir)
+            let command = format!("chmod +x '{}' && '{}'", script_to_run.display(), script_to_run.display());
+            let result = run_shell_and_stream(
+                tx, stop_flag, index, &program.dir, &command, Some("verify"),
+            )
+            .with_context(|| format!("verify for {}", program.name))?;
+
+            let log_path = out_dir.join("verify.log");
+            fs::write(&log_path, result.output.as_bytes())
+                .with_context(|| format!("write {}", log_path.display()))?;
+
+            // НЕ меняем статус на Stopped — модуль остаётся запущенным
+            // Возвращаем статус обратно в "run"
+            tx.send(RunnerEvent::Status {
+                index,
+                status: ProgramStatus::Running("run"),
+            })
+            .ok();
+
+            if result.success {
+                tx.send(RunnerEvent::Message {
+                    text: format!("{}: VERIFY PASS ✓", program.name),
+                })
+                .ok();
+            } else {
+                tx.send(RunnerEvent::Message {
+                    text: format!("{}: VERIFY FAIL (see verify.log)", program.name),
+                })
+                .ok();
+            }
         }
     };
     Ok(())
