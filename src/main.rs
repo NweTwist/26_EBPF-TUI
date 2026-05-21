@@ -184,60 +184,41 @@ fn run_app(
         if event::poll(Duration::from_millis(100))? {
             match event::read()? {
                 Event::Key(key) => {
-                    use crossterm::event::KeyModifiers;
+                    // Глобальные клавиши (работают на любой вкладке)
                     match key.code {
                         KeyCode::Char('q') => {
                             app.request_stop();
                             return Ok(());
                         }
-                        KeyCode::Tab => app.switch_tab(),
+                        KeyCode::Tab => {
+                            app.switch_tab();
+                            continue;
+                        }
                         _ => {}
                     }
-                    // Обработка клавиш в зависимости от активной вкладки
+
+                    // Клавиши по вкладкам
                     match app.active_tab {
                         ui::ActiveTab::Runner => match key.code {
-                            KeyCode::Up if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                                app.scroll_status_up();
-                            }
-                            KeyCode::Down if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                                app.scroll_status_down();
-                            }
                             KeyCode::Up => app.select_prev(),
                             KeyCode::Down => app.select_next(),
                             KeyCode::Char('l') => app.load_selected(),
                             KeyCode::Char('s') => app.stop_selected(),
-                            KeyCode::PageUp => app.scroll_status_up(),
-                            KeyCode::PageDown => app.scroll_status_down(),
-                            KeyCode::Home => app.scroll_status_reset(),
-                            KeyCode::Char('[') => app.scroll_status_up(),
-                            KeyCode::Char(']') => app.scroll_status_down(),
-                            KeyCode::Char('g') => app.scroll_status_reset(),
+                            // Прокрутка Status
+                            KeyCode::PageUp | KeyCode::Char('[') => app.scroll_up(5),
+                            KeyCode::PageDown | KeyCode::Char(']') => app.scroll_down(5),
+                            KeyCode::Home | KeyCode::Char('g') => app.scroll_to_end(),
                             _ => {}
                         },
                         ui::ActiveTab::Statistics => match key.code {
                             KeyCode::Up => app.event_table_up(),
                             KeyCode::Down => app.event_table_down(),
-                            KeyCode::PageUp => {
-                                for _ in 0..10 {
-                                    app.event_table_up();
-                                }
+                            KeyCode::PageUp | KeyCode::Char('[') => {
+                                for _ in 0..10 { app.event_table_up(); }
                             }
-                            KeyCode::PageDown => {
-                                for _ in 0..10 {
-                                    app.event_table_down();
-                                }
+                            KeyCode::PageDown | KeyCode::Char(']') => {
+                                for _ in 0..10 { app.event_table_down(); }
                             }
-                            KeyCode::Char('[') => {
-                                for _ in 0..5 {
-                                    app.event_table_up();
-                                }
-                            }
-                            KeyCode::Char(']') => {
-                                for _ in 0..5 {
-                                    app.event_table_down();
-                                }
-                            }
-                            // Разрешаем l/s и на вкладке Statistics
                             KeyCode::Char('l') => app.load_selected(),
                             KeyCode::Char('s') => app.stop_selected(),
                             _ => {}
