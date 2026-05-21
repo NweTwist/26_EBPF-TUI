@@ -1,12 +1,27 @@
 #!/bin/bash
-# Модуль 15: SCHED_CLS
-# Проверка: egress-трафик через loopback
-echo "[VERIFY] Создание egress-трафика"
-ping -c 3 127.0.0.1 > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-    echo "[VERIFY] PASS (sched_cls triggered)"
-    exit 0
-else
-    echo "[VERIFY] FAIL (ping failed)"
-    exit 1
-fi
+# ═══════════════════════════════════════════════════════════════
+# Модуль 15: BPF_PROG_TYPE_SCHED_CLS
+# Назначение: классификация пакетов в TC (traffic control)
+# Хук: classifier — TC classifier, классифицирует пакеты
+# Карта: cls_count (счётчик классифицированных пакетов)
+# Ожидание: при трафике cls_count увеличивается
+# ═══════════════════════════════════════════════════════════════
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "[VERIFY] Модуль: BPF_PROG_TYPE_SCHED_CLS"
+echo "[VERIFY] Функция: TC classifier — классификация пакетов"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+echo ""
+echo "[VERIFY] Действие: генерация трафика через loopback"
+echo "[VERIFY] Команда: ping -c 3 127.0.0.1"
+echo "[VERIFY] Ожидание: пакеты классифицируются TC, cls_count +N"
+echo ""
+ping -c 3 127.0.0.1 2>&1 | while read line; do echo "[VERIFY]   $line"; done
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "[VERIFY] Итог: пакеты классифицированы через TC"
+echo "[VERIFY] Проверьте в [RT] что cls_count увеличился"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+exit 0

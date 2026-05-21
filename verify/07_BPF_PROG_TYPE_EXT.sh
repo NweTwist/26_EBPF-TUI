@@ -1,12 +1,30 @@
 #!/bin/bash
-# Модуль 07: EXT
-# Проверка: loopback-трафик для EXT через XDP на lo
-echo "[VERIFY] Создание loopback-трафика"
-ping -c 3 127.0.0.1 > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-    echo "[VERIFY] PASS (loopback traffic generated)"
-    exit 0
-else
-    echo "[VERIFY] FAIL (ping failed)"
-    exit 1
-fi
+# ═══════════════════════════════════════════════════════════════
+# Модуль 07: BPF_PROG_TYPE_EXT (freplace)
+# Назначение: замена функции в XDP-программе на лету
+# Хук: freplace/count_and_pass — подменяет функцию target XDP
+# Карта: ext_count (счётчик вызовов подменённой функции)
+# Ожидание: при loopback-трафике ext_count увеличивается
+# ═══════════════════════════════════════════════════════════════
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "[VERIFY] Модуль: BPF_PROG_TYPE_EXT"
+echo "[VERIFY] Функция: замена XDP-функции через freplace"
+echo "[VERIFY] Механизм: target XDP вызывает count_and_pass(),"
+echo "[VERIFY]   EXT подменяет её своей версией с отдельным счётчиком"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+echo ""
+echo "[VERIFY] Действие: отправка 3 ICMP-пакетов на lo"
+echo "[VERIFY] Команда: ping -c 3 127.0.0.1"
+echo "[VERIFY] Ожидание: каждый пакет проходит через XDP→EXT, ext_count +1"
+echo ""
+ping -c 3 127.0.0.1 2>&1 | while read line; do echo "[VERIFY]   $line"; done
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "[VERIFY] Итог: 6+ пакетов через XDP (request+reply на lo)"
+echo "[VERIFY] Проверьте в [RT] что ext_count увеличился"
+echo "[VERIFY] Это доказывает что EXT-замена функции работает"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+exit 0

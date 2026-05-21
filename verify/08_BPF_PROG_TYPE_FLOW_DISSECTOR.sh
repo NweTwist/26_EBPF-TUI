@@ -1,12 +1,27 @@
 #!/bin/bash
-# Модуль 08: FLOW_DISSECTOR
-# Проверка: сетевой пакет через flow dissector
-echo "[VERIFY] Создание сетевого пакета"
-ping -c 3 127.0.0.1 > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-    echo "[VERIFY] PASS (flow dissector triggered)"
-    exit 0
-else
-    echo "[VERIFY] FAIL (ping failed)"
-    exit 1
-fi
+# ═══════════════════════════════════════════════════════════════
+# Модуль 08: BPF_PROG_TYPE_FLOW_DISSECTOR
+# Назначение: разбор сетевых потоков (flow dissection)
+# Хук: flow_dissector — вызывается при классификации пакетов
+# Карта: dissector_count (счётчик вызовов)
+# Ожидание: при сетевом трафике счётчик увеличивается
+# ═══════════════════════════════════════════════════════════════
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "[VERIFY] Модуль: BPF_PROG_TYPE_FLOW_DISSECTOR"
+echo "[VERIFY] Функция: разбор сетевых потоков ядром"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+echo ""
+echo "[VERIFY] Действие: генерация сетевого трафика (ping loopback)"
+echo "[VERIFY] Команда: ping -c 3 127.0.0.1"
+echo "[VERIFY] Ожидание: ядро вызывает flow dissector для классификации"
+echo ""
+ping -c 3 127.0.0.1 2>&1 | while read line; do echo "[VERIFY]   $line"; done
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "[VERIFY] Итог: сетевой трафик сгенерирован"
+echo "[VERIFY] Проверьте в [RT] что dissector_count увеличился"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+exit 0

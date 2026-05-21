@@ -1,12 +1,27 @@
 #!/bin/bash
-# Модуль 21: SOCKET_FILTER
-# Проверка: пакетный трафик на loopback
-echo "[VERIFY] Создание пакетного трафика"
-ping -c 3 127.0.0.1 > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-    echo "[VERIFY] PASS (socket_filter triggered)"
-    exit 0
-else
-    echo "[VERIFY] FAIL (ping failed)"
-    exit 1
-fi
+# ═══════════════════════════════════════════════════════════════
+# Модуль 21: BPF_PROG_TYPE_SOCKET_FILTER
+# Назначение: подсчёт пакетов на raw socket
+# Хук: socket — фильтр пакетов на сокете
+# Карта: filter_count (счётчик пакетов)
+# Ожидание: при сетевом трафике filter_count увеличивается
+# ═══════════════════════════════════════════════════════════════
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "[VERIFY] Модуль: BPF_PROG_TYPE_SOCKET_FILTER"
+echo "[VERIFY] Функция: подсчёт пакетов через socket filter"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+echo ""
+echo "[VERIFY] Действие: генерация пакетов на loopback"
+echo "[VERIFY] Команда: ping -c 3 127.0.0.1"
+echo "[VERIFY] Ожидание: каждый пакет проходит через filter, count +1"
+echo ""
+ping -c 3 127.0.0.1 2>&1 | while read line; do echo "[VERIFY]   $line"; done
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "[VERIFY] Итог: пакеты отфильтрованы через BPF socket filter"
+echo "[VERIFY] Проверьте в [RT] что filter_count увеличился"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+exit 0

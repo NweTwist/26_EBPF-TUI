@@ -1,7 +1,30 @@
 #!/bin/bash
-# Модуль 23: SYSCALL
-# Проверка: не требует внешних действий, программа запускается через BPF_PROG_RUN
-echo "[VERIFY] Модуль самодостаточен (BPF_PROG_RUN)"
+# ═══════════════════════════════════════════════════════════════
+# Модуль 23: BPF_PROG_TYPE_SYSCALL
+# Назначение: BPF-программа, вызываемая через BPF_PROG_RUN
+# Хук: syscall — программа запускается явно через bpf() syscall
+# Карта: syscall_run_count (счётчик запусков)
+# Особенность: не привязана к событию — запускается userspace
+# Ожидание: syscall_run_count увеличивается при каждом BPF_PROG_RUN
+# ═══════════════════════════════════════════════════════════════
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "[VERIFY] Модуль: BPF_PROG_TYPE_SYSCALL"
+echo "[VERIFY] Функция: BPF-программа запускаемая через BPF_PROG_RUN"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+echo ""
+echo "[VERIFY] Модуль самодостаточен: userspace-загрузчик сам"
+echo "[VERIFY] вызывает bpf(BPF_PROG_TEST_RUN) для запуска программы"
+echo "[VERIFY] Внешние действия не требуются"
+echo ""
+echo "[VERIFY] Ожидание: syscall_run_count увеличивается"
+echo "[VERIFY] при каждом явном вызове BPF_PROG_RUN из userspace"
 sleep 1
-echo "[VERIFY] PASS (syscall self-triggered)"
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "[VERIFY] Итог: модуль работает автономно (BPF_PROG_RUN)"
+echo "[VERIFY] Проверьте в [RT] что syscall_run_count > 0"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 exit 0

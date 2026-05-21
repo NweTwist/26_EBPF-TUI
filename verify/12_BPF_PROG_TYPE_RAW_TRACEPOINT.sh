@@ -1,7 +1,31 @@
 #!/bin/bash
-# Модуль 12: RAW_TRACEPOINT
-# Проверка: создание событий планировщика
-echo "[VERIFY] Создание событий планировщика"
-for i in $(seq 1 5); do sleep 0.1; done
-echo "[VERIFY] PASS (scheduler events triggered)"
+# ═══════════════════════════════════════════════════════════════
+# Модуль 12: BPF_PROG_TYPE_RAW_TRACEPOINT
+# Назначение: подсчёт переключений контекста (sched_switch)
+# Хук: raw_tracepoint/sched_switch — каждое переключение процесса
+# Карта: sched_count (счётчик)
+# Ожидание: при любой активности планировщика счётчик растёт
+# ═══════════════════════════════════════════════════════════════
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "[VERIFY] Модуль: BPF_PROG_TYPE_RAW_TRACEPOINT"
+echo "[VERIFY] Функция: подсчёт context switch (sched_switch)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+echo ""
+echo "[VERIFY] Действие: создание переключений контекста (sleep x5)"
+echo "[VERIFY] Каждый sleep вызывает sched_switch при засыпании/пробуждении"
+echo "[VERIFY] Ожидание: sched_count +10 (минимум)"
+echo ""
+for i in $(seq 1 5); do
+    sleep 0.1
+    echo "[VERIFY]   sleep #$i — context switch выполнен"
+done
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "[VERIFY] Итог: 5 sleep = 10+ переключений контекста"
+echo "[VERIFY] Проверьте в [RT] что sched_count увеличился"
+echo "[VERIFY] Примечание: счётчик растёт постоянно от фоновых процессов"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 exit 0

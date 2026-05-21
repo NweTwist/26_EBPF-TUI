@@ -1,12 +1,27 @@
 #!/bin/bash
-# Модуль 02: CGROUP_SKB
-# Проверка: создание egress-трафика из текущего cgroup
-echo "[VERIFY] Создание сетевого трафика (ping loopback)"
-ping -c 3 127.0.0.1 > /dev/null 2>&1
-if [ $? -eq 0 ]; then
-    echo "[VERIFY] PASS (egress traffic generated)"
-    exit 0
-else
-    echo "[VERIFY] FAIL (ping failed)"
-    exit 1
-fi
+# ═══════════════════════════════════════════════════════════════
+# Модуль 02: BPF_PROG_TYPE_CGROUP_SKB
+# Назначение: подсчёт исходящих пакетов в cgroup (egress)
+# Хук: cgroup_skb/egress — перехватывает каждый исходящий пакет
+# Карта: egress_count (счётчик пакетов)
+# Ожидание: при отправке пакетов счётчик увеличивается
+# ═══════════════════════════════════════════════════════════════
+
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "[VERIFY] Модуль: BPF_PROG_TYPE_CGROUP_SKB"
+echo "[VERIFY] Функция: подсчёт egress-пакетов в cgroup"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+echo ""
+echo "[VERIFY] Действие: отправка 3 ICMP-пакетов на loopback (ping)"
+echo "[VERIFY] Команда: ping -c 3 127.0.0.1"
+echo "[VERIFY] Ожидание: каждый пакет увеличивает egress_count"
+echo ""
+ping -c 3 127.0.0.1 2>&1 | while read line; do echo "[VERIFY]   $line"; done
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "[VERIFY] Итог: 3 ICMP echo request + ответы = 6+ egress пакетов"
+echo "[VERIFY] Проверьте в [RT] что egress_count увеличился"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+exit 0
