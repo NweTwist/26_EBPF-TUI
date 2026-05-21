@@ -339,6 +339,10 @@ impl App {
         self.run_action(runner::RunAction::Stop);
     }
 
+    pub fn verify_selected(&mut self) {
+        self.run_action(runner::RunAction::Verify);
+    }
+
     fn run_action(&mut self, action: runner::RunAction) {
         if self.entries.is_empty() {
             return;
@@ -489,6 +493,8 @@ fn render_runner_tab(frame: &mut Frame, app: &mut App, area: Rect) {
         Span::raw(" select  "),
         Span::styled("l", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(" load  "),
+        Span::styled("v", Style::default().add_modifier(Modifier::BOLD)),
+        Span::raw(" verify  "),
         Span::styled("s", Style::default().add_modifier(Modifier::BOLD)),
         Span::raw(" stop  "),
         Span::styled("[/]", Style::default().add_modifier(Modifier::BOLD)),
@@ -674,6 +680,7 @@ fn status_progress(status: &runner::ProgramStatus) -> (u8, Color) {
         runner::ProgramStatus::Running("trace") => (60, Color::Yellow),
         runner::ProgramStatus::Running("trace-stop") => (95, Color::Yellow),
         runner::ProgramStatus::Running("run") => (80, Color::Yellow),
+        runner::ProgramStatus::Running("verify") => (90, Color::Cyan),
         runner::ProgramStatus::Running(_) => (55, Color::Yellow),
         runner::ProgramStatus::Stopped => (100, Color::Green),
         runner::ProgramStatus::Failed(_) => (100, Color::Red),

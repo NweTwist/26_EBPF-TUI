@@ -43,6 +43,7 @@ pub struct RunConfig {
 pub enum RunAction {
     Load,
     Stop,
+    Verify,
 }
 
 impl RunAction {
@@ -50,6 +51,7 @@ impl RunAction {
         match self {
             RunAction::Load => "load",
             RunAction::Stop => "stop",
+            RunAction::Verify => "verify",
         }
     }
 }
@@ -124,7 +126,7 @@ fn run_manual_action(
     .ok();
 
     let native = NativeProgram::detect(&program.dir)?;
-    if !scripts.is_complete() && native.is_none() {
+    if action.label() != "verify" && !scripts.is_complete() && native.is_none() {
         tx.send(RunnerEvent::Status {
             index,
             status: ProgramStatus::MissingScripts,
@@ -218,6 +220,39 @@ fn run_manual_action(
                 })
                 .ok();
             }
+        }
+        RunAction::Verify => {
+            let verify_script = program.dir.join("verify.sh");
+            if !verify_script.exists() {
+                tx.send(RunnerEvent::Message {
+                    text: format!("{}: no verify.sh found", program.name),
+                })
+                .ok();
+                return Err(anyhow!("verify.sh not found in {}", program.dir.display()));
+            }
+            tx.send(RunnerEvent::Status {
+                index,
+                status: ProgramStatus::Running("verify"),
+            })
+            .ok();
+            run_step_to_log(
+                tx,
+                stop_flag,
+                index,
+                program,
+                "verify",
+                &verify_script,
+                &out_dir.join("verify.log"),
+            )?;
+            tx.send(RunnerEvent::Status {
+                index,
+                status: ProgramStatus::Stopped,
+            })
+            .ok();
+            tx.send(RunnerEvent::Message {
+                text: format!("{}: VERIFY completed (see artifacts/verify.log)", program.name),
+            })
+            .ok();
         }
     };
     Ok(())

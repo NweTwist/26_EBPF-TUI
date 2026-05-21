@@ -204,6 +204,7 @@ fn run_app(
                             KeyCode::Down => app.select_next(),
                             KeyCode::Char('l') => app.load_selected(),
                             KeyCode::Char('s') => app.stop_selected(),
+                            KeyCode::Char('v') => app.verify_selected(),
                             // Прокрутка Status
                             KeyCode::PageUp | KeyCode::Char('[') => app.scroll_up(5),
                             KeyCode::PageDown | KeyCode::Char(']') => app.scroll_down(5),
@@ -221,6 +222,7 @@ fn run_app(
                             }
                             KeyCode::Char('l') => app.load_selected(),
                             KeyCode::Char('s') => app.stop_selected(),
+                            KeyCode::Char('v') => app.verify_selected(),
                             _ => {}
                         },
                     }
