@@ -8,9 +8,6 @@ const eventCounts = {
   run: 0,
   stop: 0,
   fail: 0,
-  trace: 0,
-  verify: 0,
-  log: 0,
 };
 
 const eventsPerSecond = Array(sparklineWindow).fill(0);
@@ -38,9 +35,6 @@ const histogramChart = new Chart(histogramCtx, {
           "#1ac97b",
           "#f2b84b",
           "#f0515e",
-          "#7a63ff",
-          "#c78bff",
-          "#8c95a8",
         ],
       },
     ],
@@ -91,7 +85,7 @@ function normalizeEventType(eventType) {
   if (eventCounts[eventType] !== undefined) {
     return eventType;
   }
-  return "log";
+  return null;
 }
 
 function updateSparkline() {
@@ -133,6 +127,9 @@ function addRow(item) {
 
 function applyEvent(item) {
   const type = normalizeEventType(item.event_type);
+  if (!type) {
+    return;
+  }
   eventCounts[type] += 1;
   currentSecondCount += 1;
 

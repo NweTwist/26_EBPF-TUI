@@ -45,9 +45,10 @@ def resolve_repo_root(cli_value: str | None) -> Path:
     return cwd
 
 
-def classify_event(line: str) -> str:
-    if "trace |" in line:
-        return "trace"
+ALLOWED_EVENTS = {"build", "load", "run", "stop", "fail"}
+
+
+def classify_event(line: str) -> str | None:
     if "STOPPED" in line or "manual action stop" in line:
         return "stop"
     if "manual action load" in line:
@@ -56,14 +57,12 @@ def classify_event(line: str) -> str:
         return "run"
     if "FAILED" in line:
         return "fail"
-    if "VERIFY" in line or "manual action verify" in line:
-        return "verify"
     if "manual action build" in line:
         return "build"
-    return "log"
+    return None
 
 
-def parse_line(line: str) -> dict:
+def parse_line(line: str) -> dict | None:
     line = line.rstrip("\n")
     module = "system"
     message = line
@@ -71,10 +70,13 @@ def parse_line(line: str) -> dict:
         module, message = line.split(" | ", 1)
         module = module.strip() or "system"
         message = message.strip()
+    event_type = classify_event(line)
+    if event_type not in ALLOWED_EVENTS:
+        return None
     return {
         "ts": datetime.now().isoformat(timespec="seconds"),
         "module": module,
-        "event_type": classify_event(line),
+        "event_type": event_type,
         "message": message,
         "raw": line,
     }
@@ -104,7 +106,11 @@ def create_app(repo_root: Path, log_path: Path) -> FastAPI:
 
     @app.get("/api/history")
     def history(lines: int = Query(300, ge=1, le=5000)) -> JSONResponse:
-        items = [parse_line(l) for l in tail_lines(log_path, lines)]
+        items = []
+        for line in tail_lines(log_path, lines):
+            parsed = parse_line(line)
+            if parsed:
+                items.append(parsed)
         return JSONResponse({"items": items})
 
     @app.get("/events")
@@ -122,6 +128,8 @@ def create_app(repo_root: Path, log_path: Path) -> FastAPI:
                         continue
                     counter += 1
                     payload = parse_line(line)
+                    if not payload:
+                        continue
                     data = json.dumps(payload, ensure_ascii=True)
                     yield f"id: {counter}\n"
                     yield "event: log\n"
