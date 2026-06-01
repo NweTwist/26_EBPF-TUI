@@ -87,7 +87,10 @@ pub struct App {
     pub artifacts_dir: PathBuf,
     pub tx: mpsc::Sender<runner::RunnerEvent>,
     pub stop_flag: Arc<AtomicBool>,
+    /// Лог окна Status в TUI (очищается в памяти при новом запуске модуля)
     pub status_log_path: PathBuf,
+    /// Append-only архив для web-ui (никогда не очищается)
+    pub web_events_log_path: PathBuf,
 
     // Statistics
     pub active_tab: ActiveTab,
@@ -122,10 +125,13 @@ impl App {
             .collect();
 
         let status_log_path = artifacts_dir.join("status_window.log");
+        let web_events_log_path = artifacts_dir.join("web_events.log");
         if let Some(parent) = status_log_path.parent() {
             let _ = fs::create_dir_all(parent);
         }
-        let _ = fs::write(&status_log_path, b"");
+        migrate_legacy_web_log(&status_log_path, &web_events_log_path);
+        let (count_build, count_load, count_run, count_stop, count_fail) =
+            count_web_events_from_log(&web_events_log_path);
 
         let mut list_state = ListState::default();
         if !entries.is_empty() {
@@ -146,17 +152,18 @@ impl App {
             tx,
             stop_flag: Arc::new(AtomicBool::new(false)),
             status_log_path,
+            web_events_log_path,
             active_tab: ActiveTab::Runner,
             event_log: VecDeque::new(),
             event_table_scroll: 0,
             events_per_second: VecDeque::from(vec![0u64; 60]),
             last_second_tick: now_sec,
             current_second_count: 0,
-            count_build: 0,
-            count_load: 0,
-            count_run: 0,
-            count_stop: 0,
-            count_fail: 0,
+            count_build,
+            count_load,
+            count_run,
+            count_stop,
+            count_fail,
         }
     }
 
@@ -309,12 +316,9 @@ impl App {
         if self.status_lines.len() > MAX {
             self.status_lines.drain(0..self.status_lines.len() - MAX);
         }
-        if let Ok(mut f) = fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&self.status_log_path)
-        {
-            let _ = writeln!(f, "{}", line);
+        append_log_line(&self.status_log_path, &line);
+        if web_event_type(&line).is_some() {
+            append_log_line(&self.web_events_log_path, &line);
         }
         self.auto_scroll();
     }
@@ -372,12 +376,12 @@ impl App {
             return;
         }
         self.stop_flag.store(false, Ordering::Relaxed);
-        // Для verify НЕ очищаем лог — трассировки добавляются к существующим
+        // Для verify НЕ очищаем окно Status — трассировки добавляются к существующим.
+        // web_events.log не трогаем: web-ui хранит накопленную статистику.
         if !matches!(action, runner::RunAction::Verify) {
             self.status_lines.clear();
             self.status_scroll = 0;
             self.status_pinned = false;
-            let _ = fs::write(&self.status_log_path, b"");
         }
         let index = self.selected;
         let program = self.entries[index].program.clone();
@@ -392,6 +396,62 @@ impl App {
             config,
             action,
         );
+    }
+}
+
+const WEB_EVENT_TYPES: [&str; 5] = ["build", "load", "run", "stop", "fail"];
+
+fn web_event_type(line: &str) -> Option<&'static str> {
+    if !line.starts_with("status | ") {
+        return None;
+    }
+    let event = line.rsplit(" | ").next()?.trim();
+    WEB_EVENT_TYPES.iter().copied().find(|&t| t == event)
+}
+
+fn append_log_line(path: &Path, line: &str) {
+    if let Ok(mut f) = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+    {
+        let _ = writeln!(f, "{}", line);
+    }
+}
+
+fn count_web_events_from_log(path: &Path) -> (u64, u64, u64, u64, u64) {
+    let mut build = 0;
+    let mut load = 0;
+    let mut run = 0;
+    let mut stop = 0;
+    let mut fail = 0;
+    let Ok(content) = fs::read_to_string(path) else {
+        return (build, load, run, stop, fail);
+    };
+    for line in content.lines() {
+        match web_event_type(line) {
+            Some("build") => build += 1,
+            Some("load") => load += 1,
+            Some("run") => run += 1,
+            Some("stop") => stop += 1,
+            Some("fail") => fail += 1,
+            _ => {}
+        }
+    }
+    (build, load, run, stop, fail)
+}
+
+/// Переносит старый status_window.log в web_events.log (однократно).
+fn migrate_legacy_web_log(legacy: &Path, archive: &Path) {
+    if archive.exists() || !legacy.exists() {
+        return;
+    }
+    if let Ok(content) = fs::read_to_string(legacy) {
+        for line in content.lines() {
+            if web_event_type(line).is_some() {
+                append_log_line(archive, line);
+            }
+        }
     }
 }
 

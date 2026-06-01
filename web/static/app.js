@@ -194,10 +194,6 @@ async function loadHistory() {
   }
 }
 
-function clearTable() {
-  eventTable.replaceChildren();
-}
-
 function connectSSE() {
   const source = new EventSource("/events");
   streamStatus.textContent = "connected";
@@ -209,13 +205,6 @@ function connectSSE() {
     } catch (err) {
       console.error("bad event", err);
     }
-  });
-
-  source.addEventListener("reset", async () => {
-    seenLiveKeys.clear();
-    await loadStats();
-    clearTable();
-    await loadHistory();
   });
 
   source.onerror = () => {

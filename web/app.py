@@ -108,6 +108,22 @@ def ensure_log_file(path: Path) -> None:
         path.write_text("", encoding="utf-8")
 
 
+def resolve_web_log_path(repo_root: Path, cli_value: str | None) -> Path:
+    if cli_value:
+        return Path(cli_value).resolve()
+
+    archive = repo_root / "artifacts" / "web_events.log"
+    legacy = repo_root / "artifacts" / "status_window.log"
+    ensure_log_file(archive)
+    if not archive.read_text(encoding="utf-8").strip() and legacy.exists():
+        legacy_text = legacy.read_text(encoding="utf-8", errors="replace")
+        with archive.open("a", encoding="utf-8") as out:
+            for line in legacy_text.splitlines():
+                if classify_event(line.rstrip("\n")):
+                    out.write(line.rstrip("\n") + "\n")
+    return archive
+
+
 def create_app(repo_root: Path, log_path: Path) -> FastAPI:
     app = FastAPI()
 
@@ -143,11 +159,9 @@ def create_app(repo_root: Path, log_path: Path) -> FastAPI:
                     if not line:
                         time.sleep(0.5)
                         try:
-                            # Check if the file was cleared/truncated by the TUI
+                            # Log was truncated/rotated — re-open from the start.
                             if pos > log_path.stat().st_size:
                                 f.seek(0)
-                                yield "event: reset\n"
-                                yield "data: {}\n\n"
                         except FileNotFoundError:
                             pass
                         yield ": keep-alive\n\n"
@@ -182,9 +196,7 @@ def main() -> None:
     args = parser.parse_args()
 
     repo_root = resolve_repo_root(args.repo_root)
-    log_path = Path(args.log_path).resolve() if args.log_path else repo_root / "artifacts" / "status_window.log"
-
-    ensure_log_file(log_path)
+    log_path = resolve_web_log_path(repo_root, args.log_path)
 
     app = create_app(repo_root, log_path)
 
