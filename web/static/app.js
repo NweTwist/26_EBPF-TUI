@@ -114,12 +114,17 @@ function updateSparkline() {
 
 function addRow(item) {
   const row = document.createElement("tr");
-  row.innerHTML = `
-    <td>${item.ts ?? "-"}</td>
-    <td>${item.module}</td>
-    <td>${item.event_type}</td>
-    <td>${item.message}</td>
-  `;
+  const cells = [
+    item.ts ?? "-",
+    item.module,
+    item.event_type,
+    item.message,
+  ];
+  cells.forEach((value) => {
+    const cell = document.createElement("td");
+    cell.textContent = value ?? "";
+    row.appendChild(cell);
+  });
   eventTable.prepend(row);
   while (eventTable.children.length > MAX_ROWS) {
     eventTable.removeChild(eventTable.lastChild);
