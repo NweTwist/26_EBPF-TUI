@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ebpf-tui live view</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/static/styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">EBPF-TUI LIVE</p>
+          <h1>Event stream + histogram + timeline</h1>
+          <p class="lede">
+            Lightweight web view for ebpf-tui. Reads the status log and updates in real time via SSE.
+          </p>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Stream</div>
+          <div class="stat-value" id="streamStatus">connecting...</div>
+          <div class="stat-note">last update <span id="lastUpdate">-</span></div>
+        </div>
+      </header>
+
+      <section class="grid">
+        <div class="card">
+          <div class="card-title">Events per second</div>
+          <canvas id="sparkline"></canvas>
+        </div>
+        <div class="card">
+          <div class="card-title">Event histogram</div>
+          <canvas id="histogram"></canvas>
+        </div>
+      </section>
+
+      <section class="table-card">
+        <div class="card-title">Latest events</div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>time</th>
+                <th>module</th>
+                <th>type</th>
+                <th>message</th>
+              </tr>
+            </thead>
+            <tbody id="eventTable"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
