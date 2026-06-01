@@ -239,12 +239,13 @@ impl App {
     pub fn apply_runner_event(&mut self, ev: runner::RunnerEvent) {
         match ev {
             runner::RunnerEvent::Status { index, status } => {
+                let mut status_line: Option<String> = None;
                 if let Some(entry) = self.entries.get_mut(index) {
                     let prev_label = status_label(&entry.status);
                     let next_label = status_label(&status);
                     if let Some(next) = next_label {
                         if Some(next) != prev_label {
-                            self.push_status_line(format!(
+                            status_line = Some(format!(
                                 "status | {} | {}",
                                 entry.program.name,
                                 next
@@ -269,6 +270,9 @@ impl App {
                         _ => {}
                     }
                     entry.status = status;
+                }
+                if let Some(line) = status_line {
+                    self.push_status_line(line);
                 }
             }
             runner::RunnerEvent::Message { text } => {
