@@ -55,16 +55,6 @@ def classify_event(line: str) -> str | None:
             status = parts[-1].strip()
             if status in ALLOWED_EVENTS:
                 return status
-    if "STOPPED" in line or "manual action stop" in line:
-        return "stop"
-    if "manual action load" in line:
-        return "load"
-    if "RUNNING (attached" in line or "RUNNING (native attached" in line:
-        return "run"
-    if "FAILED" in line:
-        return "fail"
-    if "manual action build" in line:
-        return "build"
     return None
 
 
@@ -132,9 +122,16 @@ def create_app(repo_root: Path, log_path: Path) -> FastAPI:
                 f.seek(0, os.SEEK_END)
                 counter = 0
                 while True:
+                    pos = f.tell()
                     line = f.readline()
                     if not line:
                         time.sleep(0.5)
+                        try:
+                            # Check if the file was cleared/truncated by the TUI
+                            if pos > log_path.stat().st_size:
+                                f.seek(0)
+                        except FileNotFoundError:
+                            pass
                         yield ": keep-alive\n\n"
                         continue
                     counter += 1
