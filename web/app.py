@@ -46,21 +46,20 @@ def resolve_repo_root(cli_value: str | None) -> Path:
 
 
 def classify_event(line: str) -> str:
-    text = line.lower()
-    if "trace |" in text:
+    if "trace |" in line:
         return "trace"
-    if re.search(r"\b(unload|stopped|stop)\b", text):
+    if "STOPPED" in line or "manual action stop" in line:
         return "stop"
-    if re.search(r"\b(build)\b", text):
-        return "build"
-    if re.search(r"\b(load)\b", text) and "unload" not in text:
+    if "manual action load" in line:
         return "load"
-    if re.search(r"\b(run|running)\b", text):
+    if "RUNNING (attached" in line or "RUNNING (native attached" in line:
         return "run"
-    if re.search(r"\b(fail|failed)\b", text):
+    if "FAILED" in line:
         return "fail"
-    if re.search(r"\b(verify)\b", text):
+    if "VERIFY" in line or "manual action verify" in line:
         return "verify"
+    if "manual action build" in line:
+        return "build"
     return "log"
 
 

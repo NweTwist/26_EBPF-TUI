@@ -243,7 +243,12 @@ impl App {
                     match &status {
                         runner::ProgramStatus::Running("build") => self.count_build += 1,
                         runner::ProgramStatus::Running("load") => self.count_load += 1,
-                        runner::ProgramStatus::Running("run") => self.count_run += 1,
+                        runner::ProgramStatus::Running("run") => {
+                            // Если мы вернулись в "run" после "verify", не удваиваем счётчик запусков
+                            if !matches!(entry.status, runner::ProgramStatus::Running("verify")) {
+                                self.count_run += 1;
+                            }
+                        }
                         runner::ProgramStatus::Stopped => self.count_stop += 1,
                         runner::ProgramStatus::Failed(_) => self.count_fail += 1,
                         _ => {}
