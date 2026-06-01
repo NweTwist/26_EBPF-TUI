@@ -240,6 +240,17 @@ impl App {
         match ev {
             runner::RunnerEvent::Status { index, status } => {
                 if let Some(entry) = self.entries.get_mut(index) {
+                    let prev_label = status_label(&entry.status);
+                    let next_label = status_label(&status);
+                    if let Some(next) = next_label {
+                        if Some(next) != prev_label {
+                            self.push_status_line(format!(
+                                "status | {} | {}",
+                                entry.program.name,
+                                next
+                            ));
+                        }
+                    }
                     match &status {
                         runner::ProgramStatus::Running("build") => self.count_build += 1,
                         runner::ProgramStatus::Running("load") => self.count_load += 1,
@@ -377,6 +388,17 @@ impl App {
             config,
             action,
         );
+    }
+}
+
+fn status_label(status: &runner::ProgramStatus) -> Option<&'static str> {
+    match status {
+        runner::ProgramStatus::Running("build") => Some("build"),
+        runner::ProgramStatus::Running("load") => Some("load"),
+        runner::ProgramStatus::Running("run") => Some("run"),
+        runner::ProgramStatus::Stopped => Some("stop"),
+        runner::ProgramStatus::Failed(_) => Some("fail"),
+        _ => None,
     }
 }
 

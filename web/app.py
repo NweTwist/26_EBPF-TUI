@@ -49,6 +49,12 @@ ALLOWED_EVENTS = {"build", "load", "run", "stop", "fail"}
 
 
 def classify_event(line: str) -> str | None:
+    if line.startswith("status | "):
+        parts = line.split(" | ")
+        if len(parts) >= 3:
+            status = parts[-1].strip()
+            if status in ALLOWED_EVENTS:
+                return status
     if "STOPPED" in line or "manual action stop" in line:
         return "stop"
     if "manual action load" in line:
@@ -66,7 +72,12 @@ def parse_line(line: str) -> dict | None:
     line = line.rstrip("\n")
     module = "system"
     message = line
-    if " | " in line:
+    if line.startswith("status | "):
+        parts = line.split(" | ")
+        if len(parts) >= 3:
+            module = parts[1].strip() or "system"
+            message = parts[2].strip()
+    elif " | " in line:
         module, message = line.split(" | ", 1)
         module = module.strip() or "system"
         message = message.strip()
