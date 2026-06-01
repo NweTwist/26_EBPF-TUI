@@ -109,6 +109,12 @@ h1 {
   color: #676f83;
 }
 
+.chart-wrapper {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
 .table-card {
   margin-top: 24px;
   background: var(--card);
