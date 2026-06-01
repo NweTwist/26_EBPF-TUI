@@ -178,11 +178,6 @@ fn run_manual_action(
             } else if let Some(native) = native.as_ref() {
                 run_native_build(tx, stop_flag, index, program, native, &out_dir)?;
                 run_native_load(tx, stop_flag, index, program, native, &out_dir)?;
-                tx.send(RunnerEvent::Status {
-                    index,
-                    status: ProgramStatus::Running("run"),
-                })
-                .ok();
                 tx.send(RunnerEvent::Message {
                     text: format!("{}: RUNNING (native attached; press s to stop)", program.name),
                 })
