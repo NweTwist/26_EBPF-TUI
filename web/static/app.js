@@ -2,17 +2,17 @@ const HISTORY_LIMIT = 300;
 const MAX_ROWS = 200;
 const sparklineWindow = 60;
 
-const eventCounts = {
-  build: 0,
-  load: 0,
-  run: 0,
-  stop: 0,
-  fail: 0,
-};
+const EVENT_TYPES = ["build", "load", "run", "stop", "fail"];
+
+const eventCounts = Object.fromEntries(EVENT_TYPES.map((t) => [t, 0]));
 
 const eventsPerSecond = Array(sparklineWindow).fill(0);
 let currentSecond = Math.floor(Date.now() / 1000);
 let currentSecondCount = 0;
+
+// Dedupe live SSE events (history rows are display-only).
+const seenLiveKeys = new Set();
+const MAX_SEEN_LIVE_KEYS = 2000;
 
 const streamStatus = document.getElementById("streamStatus");
 const lastUpdate = document.getElementById("lastUpdate");
@@ -24,11 +24,11 @@ const sparklineCtx = document.getElementById("sparkline");
 const histogramChart = new Chart(histogramCtx, {
   type: "bar",
   data: {
-    labels: Object.keys(eventCounts),
+    labels: EVENT_TYPES,
     datasets: [
       {
         label: "events",
-        data: Object.values(eventCounts),
+        data: EVENT_TYPES.map((t) => eventCounts[t]),
         backgroundColor: [
           "#ff6a3d",
           "#2aa9ff",
@@ -88,6 +88,18 @@ function normalizeEventType(eventType) {
   return null;
 }
 
+function eventKey(item) {
+  if (item.raw) {
+    return item.raw;
+  }
+  return `${item.module}|${item.event_type}|${item.message}`;
+}
+
+function updateHistogram() {
+  histogramChart.data.datasets[0].data = EVENT_TYPES.map((t) => eventCounts[t]);
+  histogramChart.update("none");
+}
+
 function updateSparkline() {
   const nowSec = Math.floor(Date.now() / 1000);
   if (nowSec !== currentSecond) {
@@ -125,25 +137,65 @@ function addRow(item) {
   }
 }
 
-function applyEvent(item) {
+function rememberLiveKey(key) {
+  seenLiveKeys.add(key);
+  if (seenLiveKeys.size > MAX_SEEN_LIVE_KEYS) {
+    const drop = seenLiveKeys.size - MAX_SEEN_LIVE_KEYS;
+    const iter = seenLiveKeys.values();
+    for (let i = 0; i < drop; i += 1) {
+      const next = iter.next();
+      if (!next.done) {
+        seenLiveKeys.delete(next.value);
+      }
+    }
+  }
+}
+
+function applyLiveEvent(item) {
   const type = normalizeEventType(item.event_type);
   if (!type) {
     return;
   }
+
+  const key = eventKey(item);
+  if (seenLiveKeys.has(key)) {
+    return;
+  }
+  rememberLiveKey(key);
+
   eventCounts[type] += 1;
   currentSecondCount += 1;
 
-  histogramChart.data.datasets[0].data = Object.values(eventCounts);
-  histogramChart.update("none");
+  updateHistogram();
   updateSparkline();
   addRow(item);
   lastUpdate.textContent = new Date().toLocaleTimeString();
 }
 
+async function loadStats() {
+  const res = await fetch("/api/stats");
+  const data = await res.json();
+  for (const type of EVENT_TYPES) {
+    eventCounts[type] = data.counts?.[type] ?? 0;
+  }
+  updateHistogram();
+}
+
 async function loadHistory() {
   const res = await fetch(`/api/history?lines=${HISTORY_LIMIT}`);
   const data = await res.json();
-  data.items.forEach((item) => applyEvent(item));
+  const items = data.items ?? [];
+  for (let i = items.length - 1; i >= 0; i -= 1) {
+    addRow(items[i]);
+  }
+  if (items.length > 0) {
+    const last = items[items.length - 1];
+    lastUpdate.textContent = last.ts ?? new Date().toLocaleTimeString();
+  }
+}
+
+function clearTable() {
+  eventTable.replaceChildren();
 }
 
 function connectSSE() {
@@ -153,10 +205,17 @@ function connectSSE() {
   source.addEventListener("log", (event) => {
     try {
       const item = JSON.parse(event.data);
-      applyEvent(item);
+      applyLiveEvent(item);
     } catch (err) {
       console.error("bad event", err);
     }
+  });
+
+  source.addEventListener("reset", async () => {
+    seenLiveKeys.clear();
+    await loadStats();
+    clearTable();
+    await loadHistory();
   });
 
   source.onerror = () => {
@@ -164,4 +223,10 @@ function connectSSE() {
   };
 }
 
-loadHistory().then(connectSSE);
+async function init() {
+  await loadStats();
+  await loadHistory();
+  connectSSE();
+}
+
+init();

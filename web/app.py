@@ -90,6 +90,18 @@ def tail_lines(path: Path, count: int) -> list[str]:
         return f.read().splitlines()[-count:]
 
 
+def count_events(log_path: Path) -> dict[str, int]:
+    counts = {name: 0 for name in ALLOWED_EVENTS}
+    if not log_path.exists():
+        return counts
+    with log_path.open("r", encoding="utf-8", errors="replace") as f:
+        for line in f:
+            event_type = classify_event(line.rstrip("\n"))
+            if event_type:
+                counts[event_type] += 1
+    return counts
+
+
 def ensure_log_file(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     if not path.exists():
@@ -104,6 +116,10 @@ def create_app(repo_root: Path, log_path: Path) -> FastAPI:
     @app.get("/")
     def index() -> FileResponse:
         return FileResponse(STATIC_DIR / "index.html")
+
+    @app.get("/api/stats")
+    def stats() -> JSONResponse:
+        return JSONResponse({"counts": count_events(log_path)})
 
     @app.get("/api/history")
     def history(lines: int = Query(300, ge=1, le=5000)) -> JSONResponse:
@@ -130,6 +146,8 @@ def create_app(repo_root: Path, log_path: Path) -> FastAPI:
                             # Check if the file was cleared/truncated by the TUI
                             if pos > log_path.stat().st_size:
                                 f.seek(0)
+                                yield "event: reset\n"
+                                yield "data: {}\n\n"
                         except FileNotFoundError:
                             pass
                         yield ": keep-alive\n\n"
