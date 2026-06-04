@@ -159,9 +159,11 @@ def create_app(repo_root: Path, log_path: Path) -> FastAPI:
                     if not line:
                         time.sleep(0.5)
                         try:
-                            # Log was truncated/rotated — re-open from the start.
+                            # TUI started a new session — archive was truncated.
                             if pos > log_path.stat().st_size:
                                 f.seek(0)
+                                yield "event: reset\n"
+                                yield "data: {}\n\n"
                         except FileNotFoundError:
                             pass
                         yield ": keep-alive\n\n"

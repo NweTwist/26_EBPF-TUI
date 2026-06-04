@@ -129,9 +129,9 @@ impl App {
         if let Some(parent) = status_log_path.parent() {
             let _ = fs::create_dir_all(parent);
         }
-        migrate_legacy_web_log(&status_log_path, &web_events_log_path);
-        let (count_build, count_load, count_run, count_stop, count_fail) =
-            count_web_events_from_log(&web_events_log_path);
+        // Новая сессия TUI — обнуляем архив для web-ui и окно Status.
+        let _ = fs::write(&status_log_path, b"");
+        let _ = fs::write(&web_events_log_path, b"");
 
         let mut list_state = ListState::default();
         if !entries.is_empty() {
@@ -159,11 +159,11 @@ impl App {
             events_per_second: VecDeque::from(vec![0u64; 60]),
             last_second_tick: now_sec,
             current_second_count: 0,
-            count_build,
-            count_load,
-            count_run,
-            count_stop,
-            count_fail,
+            count_build: 0,
+            count_load: 0,
+            count_run: 0,
+            count_stop: 0,
+            count_fail: 0,
         }
     }
 
@@ -416,42 +416,6 @@ fn append_log_line(path: &Path, line: &str) {
         .open(path)
     {
         let _ = writeln!(f, "{}", line);
-    }
-}
-
-fn count_web_events_from_log(path: &Path) -> (u64, u64, u64, u64, u64) {
-    let mut build = 0;
-    let mut load = 0;
-    let mut run = 0;
-    let mut stop = 0;
-    let mut fail = 0;
-    let Ok(content) = fs::read_to_string(path) else {
-        return (build, load, run, stop, fail);
-    };
-    for line in content.lines() {
-        match web_event_type(line) {
-            Some("build") => build += 1,
-            Some("load") => load += 1,
-            Some("run") => run += 1,
-            Some("stop") => stop += 1,
-            Some("fail") => fail += 1,
-            _ => {}
-        }
-    }
-    (build, load, run, stop, fail)
-}
-
-/// Переносит старый status_window.log в web_events.log (однократно).
-fn migrate_legacy_web_log(legacy: &Path, archive: &Path) {
-    if archive.exists() || !legacy.exists() {
-        return;
-    }
-    if let Ok(content) = fs::read_to_string(legacy) {
-        for line in content.lines() {
-            if web_event_type(line).is_some() {
-                append_log_line(archive, line);
-            }
-        }
     }
 }
 

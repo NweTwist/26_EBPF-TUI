@@ -115,7 +115,7 @@ artifacts_dir: "artifacts"
 
 `artifacts/status_window.log`
 
-Для web-ui используется отдельный append-only архив (не очищается при запусках модулей и TUI):
+Для web-ui используется архив `artifacts/web_events.log` (очищается при каждом новом запуске TUI; между запусками модулей в одной сессии — накапливается):
 
 `artifacts/web_events.log`
 

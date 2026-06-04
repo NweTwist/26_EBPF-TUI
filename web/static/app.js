@@ -194,6 +194,21 @@ async function loadHistory() {
   }
 }
 
+function resetUiState() {
+  for (const type of EVENT_TYPES) {
+    eventCounts[type] = 0;
+  }
+  seenLiveKeys.clear();
+  currentSecondCount = 0;
+  eventsPerSecond.fill(0);
+  currentSecond = Math.floor(Date.now() / 1000);
+  updateHistogram();
+  sparklineChart.data.datasets[0].data = eventsPerSecond;
+  sparklineChart.update("none");
+  eventTable.replaceChildren();
+  lastUpdate.textContent = "-";
+}
+
 function connectSSE() {
   const source = new EventSource("/events");
   streamStatus.textContent = "connected";
@@ -205,6 +220,10 @@ function connectSSE() {
     } catch (err) {
       console.error("bad event", err);
     }
+  });
+
+  source.addEventListener("reset", () => {
+    resetUiState();
   });
 
   source.onerror = () => {
